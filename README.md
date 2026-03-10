@@ -63,8 +63,6 @@ $$S_{final} = w_a S_d + w_b T_c + w_c R_{score} + w_d L_s$$
 
 如有疑问或寻求合作，请通过以下方式联系我们：
 
-[csw552211@outlook.com]
-
 ### 许可证
 
 本项目依据 [MIT] 许可证开源发布。请参阅 `LICENSE` 文件了解详细信息。
