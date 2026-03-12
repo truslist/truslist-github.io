@@ -1,68 +1,231 @@
+# TrusList: A Regional Domain Ranking Methodology
 
 
-# TRUSLIST: 一种基于多维度评估的受信赖域名 Top List 构建方法
+> **Anonymous submission** -- All author information is withheld for double-blind review.
+> This repository is the open-source artifact accompanying the paper submission.
+>
+> **WARNING: The raw passive DNS dataset cannot be released due to privacy and
+> data-use agreement restrictions. Only the source code is provided.**
 
-## 摘要
+---
 
-TRUSLIST 提出了一种**开放、稳健且综合性的域名排名系统**，旨在解决现有域名 Top List 在易操纵性、方法不透明性和地域代表性偏差方面的问题。本系统通过整合**多维度评估框架**，超越了传统的基于流量的排名指标，构建了一个具备更高时间稳定性、更强抗攻击能力和更均衡代表性的 Web 生态系统快照。
+## What is TrusList?
 
-## Ⅰ. 核心方法论
+The Domain Name System (DNS) underpins virtually all network communications, and
+**domain top lists** -- rankings of the most popular or frequently accessed domains --
+are widely used in DNS security research, malicious domain detection, and anti-phishing
+benchmarking. However, existing lists such as Alexa, Umbrella, Tranco, and SecRank
+suffer from two fundamental problems when applied to **regional networks**:
 
-TRUSLIST 的最终域名评分是基于四个独立评分模块的加权求和。各模块权重通过**层次分析法 (AHP)** 确定，并经过严格的一致性检验，确保了评估体系的逻辑一致性和透明度。
+1. **Regional representativeness deficit.** Global lists aggregate worldwide traffic and
+   systematically overlook locally important domains (government, academic, and
+   public-service sites), while globally popular but locally irrelevant domains dominate.
+2. **Manipulation vulnerability.** Rankings based purely on traffic volume can be gamed
+   by botnets inflating DNS query counts -- a risk amplified in regional networks whose
+   smaller scale makes them more susceptible to such attacks.
 
-| 模块 | 关键特征 | 权重 (AHP) |
-| :--- | :--- | :--- |
-| **1. 用户行为评分 ($S_d$)** | 基于改进的 Borda 计分法，通过大规模被动 DNS (PDNS) 数据推断域名偏好。采用 **KL 散度** 计算 IP 的行为一致性，并使用**指数加权移动平均 (EWMA)** 平滑处理，以动态分配 IP 权重 ($W_i$)，有效减轻了网关 IP 偏差和操纵风险。 | 0.479 |
-| **2. TLD 信誉评分 ($T_c$)** | 根据顶级域名的注册政策严格性进行分层评估。要求严格验证的 TLD (如 `.gov`, `.edu`) 由于其低滥用率和官方认证要求，被赋予更高的信誉值，从而保障了关键性基础域名的代表性。 | 0.338 |
-| **3. 注册商信誉评分 ($R_{score}$)** | 结合了注册商的**流行度 ($R_P$)、经贝叶斯平滑的恶意率 ($R_S$)** 和**合规性 ($R_C$)** 三个维度，通过几何平均集成。该模块用于识别和惩罚恶意域名聚集的低信誉注册商。 | 0.112 |
-| **4. 域间链接结构评分 ($L_{s}$)** | 借鉴 PageRank 原理，但将分析范围限制于权威参考域名集。根据域名被权威、可信赖域名引用的程度来评估其重要性和可信度。 | 0.071 |
+**TrusList** addresses both problems through a multi-dimensional ranking methodology that
+fuses behavioral, institutional, and structural signals derived from passive DNS (PDNS) data.
 
-最终的聚合域名分数 $S_{final}$ 计算公式如下，其中 $w_i$ 为对应模块的权重：
-$$S_{final} = w_a S_d + w_b T_c + w_c R_{score} + w_d L_s$$
+---
 
-## Ⅱ. 性能评估与验证
+## Methodology
 
-### 1. 临时稳定性
+TrusList evaluates each domain across four complementary dimensions and fuses them via
+the **Analytic Hierarchy Process (AHP)**:
 
-我们通过计算七天内的日间 Spearman 秩相关系数来衡量排名稳定性。
+| Score | Dimension                          | AHP Weight |
+|-------|------------------------------------|-----------|
+| Sd    | Spatio-temporal query behavior     | 0.479     |
+| St    | TLD credibility                    | 0.338     |
+| Sr    | Registrar reputation               | 0.112     |
+| Sp    | Structural inter-domain link influence | 0.071  |
 
-| 排名系统 | 7天连续日间 Spearman 相关系数范围 |
-| :--- | :--- |
-| **TRUSLIST** | **0.94~0.96** |
-| SecRank & Umbrella | 0.87~0.94 |
+The final ranking score is:
 
-**结论：** TRUSLIST 排名展现出更高的时序一致性，证明了其多因素融合方法在保持排名合理性的同时，有效降低了每日波动。
+```
+F = 0.479 * Sd + 0.338 * St + 0.112 * Sr + 0.071 * Sp
+```
 
-### 2. 抗攻击鲁棒性
+AHP weights are derived from a pairwise comparison matrix (CR = 0.008 < 0.1), ensuring
+expert-guided consistency without requiring labeled training data.
 
-我们针对 DGA (Domain Generation Algorithm) 风格的流量膨胀攻击进行了测试。
+### Scoring Dimensions
 
-* **结果：** 在不同攻击强度下，TRUSLIST 始终能保持恶意域名的高排名（即低穿透性），显著优于仅基于流量的基线 SecRank。这验证了系统的稳健性。
+- **Sd -- Spatio-temporal Query Behavior (weight 0.479).**
+  Each IP is modeled as an independent voter. Its preference for a domain is measured by
+  the geometric mean of normalized query volume and temporal spread (active 10-minute slots
+  per day). IP weights are adjusted by a KL-divergence-based behavioral consistency filter
+  that penalizes crawlers and botnets. Scores are aggregated via weighted Borda count.
 
-### 3. Ablation 研究（模块贡献）
+- **St -- TLD Credibility (weight 0.338).**
+  Strictly verified TLDs (.gov, .edu, .gov.cn, .edu.cn, .ac.cn, etc.) require official
+  credentials from applicants, yielding substantially lower abuse rates. TrusList assigns
+  higher scores to these namespaces.
 
-通过移除单个模块来量化其对稳定性和抗攻击性的贡献。负值表示性能退化，数值的绝对值越大，贡献度越高。
+- **Sr -- Registrar Reputation (weight 0.112).**
+  Derived from three components: popularity of managed domains, Bayesian-smoothed malicious
+  domain rate, and a compliance score reflecting jurisdiction-level identity verification
+  rigor -- aggregated via geometric mean.
 
-| 移除模块 | 稳定性下降 (Ranking Stability) | 抗攻击性下降 (Avg. Rank) |
-| :--- | :--- | :--- |
-| - 注册商信誉 | **-0.0311** | **-3167.71** |
-| - TLD 信誉 | -0.0043 | -192.05 |
-| - 链接结构 | -0.0003 | -142.62 |
+- **Sp -- Structural Link Influence (weight 0.071).**
+  Inspired by PageRank: link values propagate from a curated set of ~25,000 reference domains
+  (top-10K union of Tranco, SecRank, and TrusList) to domains they hyperlink to, using
+  web-graph data.
 
-**结论：** 注册商信誉模块对模型的鲁棒性贡献最为关键。其移除会导致稳定性的显著下降，并使恶意域名更容易渗透至高排名位置。
+---
 
-## Ⅲ. 可复现性与数据访问
+## Experimental Results
 
-本项目方法论是**开放**的，且实验工具和经脱敏的数据集已发布，以支持社区进行独立的验证和互联网测量研究。
+All experiments use large-scale PDNS data collected from a regional network with over one
+million users.
 
-* **项目网站/工具和数据集：** `https://truslist.github.io`
+### Representativeness
 
-## Ⅳ. 联系方式与许可证
+Top-N overlap between TrusList and reference rankings reveals a gradient aligned with
+data-source proximity to the regional network:
 
-### 联系方式
+| Reference List | Overlap (Top-100 to Top-10K) | Scope            |
+|----------------|------------------------------|------------------|
+| SecRank        | 10% to 42%                   | National (China) |
+| Tranco         | 10% to 21%                   | Global aggregate |
+| Umbrella       | 7%  to 10%                   | Global DNS       |
 
-如有疑问或寻求合作，请通过以下方式联系我们：
+The non-trivial overlap with Tranco (up to 21%) confirms TrusList is not insular -- it
+captures both internationally recognized platforms and critical local domains.
 
-### 许可证
+### Temporal Stability (7-day Spearman rho)
 
-本项目依据 [MIT] 许可证开源发布。请参阅 `LICENSE` 文件了解详细信息。
+| System       | rho range     | Trend     |
+|--------------|---------------|-----------|
+| **TrusList** | **0.94-0.97** | Flat      |
+| SecRank      | 0.87-0.94     | Declining |
+| Umbrella     | 0.87-0.94     | Declining |
+
+Stability stems from multi-factor fusion: registrar reputation, TLD credibility, and link
+structure are structurally stable signals that attenuate transient query spikes.
+
+### Attack Resistance (DGA Simulation)
+
+Even a partially adaptive attacker (high-reputation registrar, common TLD .com) faces a
+hard score ceiling:
+
+```
+F_max_adv = 0.479 * Sd + 0.268 <= 0.747
+```
+
+This falls well below the F ~= 0.85 achieved by typical top-tier legitimate domains,
+because Sp remains near zero for any newly registered domain and St awards full credit
+only to institutionally restricted namespaces.
+
+### Phishing Target Coverage
+
+Using Jaro-Winkler similarity >= 0.75 against real-world phishing feeds:
+
+| Top-K   | TrusList vs. SecRank           |
+|---------|--------------------------------|
+| Top-100 | **5.96x** (143 vs. 24 domains) |
+| Top-500 | **2.85x**                      |
+
+### Ablation Study
+
+Removing each module individually confirms that **registrar reputation (Sr) is the primary
+defensive bottleneck**: its removal causes the largest degradation in both stability
+(-0.0311 Spearman) and attack resistance (malicious domain average rank drops by -3,167).
+TLD credibility (St) and link structure (Sp) provide secondary defensive layers.
+
+---
+
+## Repository Structure
+
+```
+DomainRanking/
+|-- config/
+|   |-- setting.py              # Global configuration (paths, AHP weights, module parameters)
+|-- src/
+|   |-- main.py                 # Pipeline entry point
+|   |-- modules/
+|   |   |-- user_behavior.py    # Sd: spatio-temporal query scoring
+|   |   |-- tld_score.py        # St: TLD credibility scoring
+|   |   |-- registrar_score.py  # Sr: registrar reputation scoring
+|   |   |-- link_structure.py   # Sp: structural link influence scoring
+|   |   |-- ahp.py              # AHP weight fusion
+|   |   |-- umbrella.py         # Umbrella-style baseline ranker
+|   |-- units/
+|       |-- merge.py            # Rank merging utilities
+|-- data/                       # Data directory (see notice below)
+    |-- filtered/               # Pre-processed PDNS records (NOT PROVIDED)
+    |-- rank/                   # Reference rankings: SecRank, Tranco
+    |-- raw/                    # Auxiliary data: registrar DB, TLD policy, phishing feeds
+    |-- result/                 # Pipeline outputs
+```
+
+> **Data Availability Notice:**
+> The passive DNS dataset used in this paper was collected under a data-sharing agreement
+> with the network operator and contains potentially sensitive network traffic information.
+> It **cannot be publicly released** due to privacy obligations and the terms of the
+> data-use agreement. The `data/` directory structure above is provided for reference only.
+> To run the pipeline, you must supply your own PDNS data in the same format.
+
+---
+
+## Running the Pipeline
+
+### Requirements
+
+```
+Python >= 3.8
+pandas
+numpy
+tldextract
+tqdm
+```
+
+Install dependencies:
+
+```bash
+pip install pandas numpy tldextract tqdm
+```
+
+### Configuration
+
+Edit `config/setting.py` to point to your own data files:
+
+```python
+DATA_SOURCES = {
+    'pdns_data_path': 'path/to/your/pdns/files',
+    'registrar_data_path': 'path/to/registrar_info.csv',
+    'tld_data_path': 'path/to/import_domain.csv',
+    'link_data_path': 'path/to/Link_data.csv',
+    'phish_tank_path': 'path/to/threat_intelligence.csv',
+    'registrar_accredited': 'path/to/Accredited-Registrars.csv',
+    'secrank_data_path': 'path/to/SecRank/YYYY-MM-DD',
+    'tranco_data_path': 'path/to/tranco.csv',
+}
+```
+
+Also update the AHP weights and module parameters in the same file if needed.
+
+### Execution
+
+```bash
+cd DomainRanking
+python src/main.py
+```
+
+The pipeline will interactively prompt you to select a PDNS input file, then execute all
+four scoring modules sequentially and save the final ranked list to `data/result/`.
+
+---
+
+## Citation
+
+> **Anonymous submission under double-blind review.**
+> Citation information will be provided upon paper acceptance.
+
+---
+
+## License
+
+To be determined upon acceptance. The source code is provided solely for artifact
+evaluation purposes during the review process.
