@@ -1,0 +1,31 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Daily output (user-generated)
+output/daily/
+
+# Raw data (user-provided)
+data/pdns/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+.venv/
+
+# Streamlit
+.streamlit/
+
+# Temporary files
+*.tmp
+tempCodeRunnerFile.py
